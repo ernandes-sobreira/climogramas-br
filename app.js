@@ -162,32 +162,24 @@ function plotClimogram(d){
   const tmax = a.tmax ?? null;
   const tmean = a.tmean ?? null;
 
+  const pMean = a.p_month_mean ?? null;
+const pMeanLine = x.map(_ => pMean);
+
+const tracePrecMean = {
+  x,
+  y: pMeanLine,
+  type: "scatter",
+  mode: "lines",
+  name: "Precipitação média mensal (ano)",
+  yaxis: "y",
+  line: {
+    dash: "dot",
+    width: 2
+  }
+};
+
+
   // Faixa anual de temperatura (min-max) como "band"
-  const bandLow = x.map(_ => tmin);
-  const bandHigh = x.map(_ => tmax);
-  const meanLine = x.map(_ => tmean);
-
-  const traceBandHigh = {
-    x, y: bandHigh,
-    type:"scatter",
-    mode:"lines",
-    line:{ width:0 },
-    hoverinfo:"skip",
-    showlegend:false,
-    name:"T max"
-  };
-
-  const traceBandLow = {
-    x, y: bandLow,
-    type:"scatter",
-    mode:"lines",
-    fill:"tonexty",
-    fillcolor:"rgba(79,70,229,0.12)",
-    line:{ width:0 },
-    hoverinfo:"skip",
-    showlegend:true,
-    name:"Régua T (mín–máx)"
-  };
 
   const traceTemp = {
     x, y: t,
@@ -237,12 +229,16 @@ function plotClimogram(d){
     plot_bgcolor:"rgba(0,0,0,0)"
   };
 
-  Plotly.newPlot("chart", [tracePrec, traceBandHigh, traceBandLow, traceMean, traceTemp], layout, {
+ Plotly.newPlot(
+  "chart",
+  [tracePrec, tracePrecMean, traceTemp],
+  layout,
+  {
     displaylogo:false,
     responsive:true,
     toImageButtonOptions:{ format:"png", filename:`climograma_${d.station}_${d.year}` }
-  });
-}
+  }
+);
 
 function exportCSV(){
   if(!window.__lastData) return;
