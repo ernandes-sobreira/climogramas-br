@@ -150,6 +150,16 @@ function renderCards(d){
   `).join("");
 }
 // linha da temperatura média anual
+
+function plotClimogram(d){
+  const months = d.months || [];
+  const x = months.map(m => MONTHS[m.m-1]);
+  const t = months.map(m => m.tmean);
+  const p = months.map(m => m.p);
+
+  const a = d.annual || {};
+
+  // linha da temperatura média anual (no eixo da direita)
 const tMean = a.tmean ?? null;
 const tMeanLine = x.map(_ => tMean);
 
@@ -162,16 +172,7 @@ const traceTempMean = {
   yaxis: "y2",
   line: { dash: "dot", width: 2 }
 };
-
-
-function plotClimogram(d){
-  const months = d.months || [];
-  const x = months.map(m => MONTHS[m.m-1]);
-  const t = months.map(m => m.tmean);
-  const p = months.map(m => m.p);
-
-  const a = d.annual || {};
-
+  
   // linha da precipitação média mensal do ano
   const pMean = a.p_month_mean ?? null;
   const pMeanLine = x.map(_ => pMean);
@@ -224,7 +225,11 @@ function plotClimogram(d){
     plot_bgcolor:"rgba(0,0,0,0)"
   };
 
-  Plotly.newPlot(
+  Plotly.newPlot("chart", traces, layout, {
+  displaylogo:false,
+  responsive:true,
+  toImageButtonOptions:{ format:"png", filename:`climograma_${d.station}_${d.year}` }
+});newPlot(
   "chart",
   [tracePrec, tracePrecMean, traceTemp, traceTempMean],
   layout,
