@@ -262,7 +262,7 @@ function exportCSV(){
 async function bootstrap(){
   initMap();
 
-  const r = await fetch("assets/stations.json"), { cache: "no-store" });
+  const r = await fetch("assets/stations.json", { cache: "no-store" });
   STATIONS = await r.json();
 
   // ordena por UF depois nome
