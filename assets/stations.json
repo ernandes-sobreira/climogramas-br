@@ -1,0 +1,305 @@
+import os, re, json, zipfile
+from io import BytesIO
+from datetime import datetime
+import pandas as pd
+
+# --------- heurísticas de detecção de colunas ---------
+TEMP_KEYS = [
+    "TEMPERATURA", "TEMP", "BULBO SECO", "AR", "TBS"
+]
+PREC_KEYS = [
+    "PRECIP", "CHUVA", "PRECIPITACAO", "PRECIPITAÇÃO"
+]
+DATE_KEYS = ["DATA", "DATE"]
+HOUR_KEYS = ["HORA", "HOUR", "HORA UTC"]
+
+def norm(s: str) -> str:
+    return re.sub(r"\s+", " ", s.strip().upper())
+
+def pick_col(cols, keys):
+    cols_u = [norm(c) for c in cols]
+    for i, cu in enumerate(cols_u):
+        if all(k in cu for k in []):  # placeholder
+            pass
+    # escolha “mais provável”: contém alguma key e não é máximo/mínimo se possível
+    candidates = []
+    for c in cols:
+        cu = norm(c)
+        if any(k in cu for k in keys):
+            candidates.append(c)
+    if not candidates:
+        return None
+    # penaliza colunas de "MAX" "MIN" quando buscamos temperatura média horária
+    def score(c):
+        cu = norm(c)
+        s = 0
+        for k in keys:
+            if k in cu: s += 2
+        if "MAX" in cu: s -= 2
+        if "MIN" in cu: s -= 2
+        if "INST" in cu or "INSTANT" in cu: s += 1
+        if "HOR" in cu or "HORA" in cu: s += 1
+        return s
+    candidates.sort(key=score, reverse=True)
+    return candidates[0]
+
+def find_header_start(text: str) -> int:
+    # procura a linha que parece ser o cabeçalho de dados (contém DATA e HORA)
+    lines = text.splitlines()
+    for i, ln in enumerate(lines[:80]):  # normalmente fica no topo
+        u = norm(ln)
+        if ("DATA" in u) and ("HORA" in u):
+            return i
+    # fallback: assume que o arquivo já começa com cabeçalho
+    return 0
+
+def parse_meta(text: str) -> dict:
+    # tenta extrair nome, UF, lat/lon/alt do cabeçalho textual
+    meta = {"name": None, "uf": None, "lat": None, "lon": None, "alt": None, "id": None}
+    head = "\n".join(text.splitlines()[:60])
+
+    # ID INMET às vezes aparece como "CODIGO (WMO):" ou "CODIGO:"
+    m = re.search(r"(CÓDIGO|CODIGO).*?:\s*([A-Z0-9]{3,6})", head, re.IGNORECASE)
+    if m:
+        meta["id"] = m.group(2).strip()
+
+    # Nome e UF (bem variável)
+    m = re.search(r"(ESTA[CÇ][AÃ]O|ESTACAO).*?:\s*(.+)", head, re.IGNORECASE)
+    if m:
+        meta["name"] = m.group(2).strip()
+
+    m = re.search(r"\bUF\b.*?:\s*([A-Z]{2})", head, re.IGNORECASE)
+    if m:
+        meta["uf"] = m.group(1).strip().upper()
+
+    # latitude/longitude/altitude
+    def grab_float(pattern):
+        mm = re.search(pattern, head, re.IGNORECASE)
+        if not mm: return None
+        s = mm.group(1).replace(",", ".")
+        try: return float(s)
+        except: return None
+
+    meta["lat"] = grab_float(r"LATITUDE.*?:\s*([-0-9\.,]+)")
+    meta["lon"] = grab_float(r"LONGITUDE.*?:\s*([-0-9\.,]+)")
+    meta["alt"] = grab_float(r"ALTITUDE.*?:\s*([-0-9\.,]+)")
+
+    return meta
+
+def to_datetime(df: pd.DataFrame) -> pd.Series:
+    cols = list(df.columns)
+    date_col = None
+    hour_col = None
+
+    for c in cols:
+        cu = norm(c)
+        if any(k in cu for k in DATE_KEYS):
+            date_col = c
+        if any(k in cu for k in HOUR_KEYS):
+            hour_col = c
+
+    if date_col is None:
+        raise ValueError("Não achei coluna de DATA.")
+    if hour_col is None:
+        # alguns arquivos juntam data/hora numa coluna
+        # tenta detectar uma coluna com 'DATA HORA'
+        for c in cols:
+            cu = norm(c)
+            if "DATA" in cu and "HORA" in cu:
+                date_col = c
+                hour_col = None
+                break
+
+    if hour_col is None:
+        # tenta parse direto
+        return pd.to_datetime(df[date_col], errors="coerce", dayfirst=True)
+
+    # hora pode vir como "0000", "00:00", "0"
+    h = df[hour_col].astype(str).str.strip()
+    h = h.str.replace(":", "", regex=False)
+    h = h.str.zfill(4)
+    # cria "HH:MM"
+    hh = h.str.slice(0,2)
+    mm = h.str.slice(2,4)
+
+    dt_str = df[date_col].astype(str).str.strip() + " " + hh + ":" + mm
+    return pd.to_datetime(dt_str, errors="coerce", dayfirst=True)
+
+def compute_metrics(df: pd.DataFrame, temp_col: str, prec_col: str, year: int) -> dict:
+    df = df.copy()
+    df["dt"] = to_datetime(df)
+    df = df.dropna(subset=["dt"])
+    df = df[df["dt"].dt.year == year]
+
+    # numéricos
+    for col in [temp_col, prec_col]:
+        if col is None: continue
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # mensal
+    df["month"] = df["dt"].dt.month
+    monthly = df.groupby("month").agg(
+        tmean=(temp_col, "mean") if temp_col else ("month", "size"),
+        p=(prec_col, "sum") if prec_col else ("month", "size")
+    ).reset_index()
+
+    months = []
+    for _, r in monthly.iterrows():
+        m = int(r["month"])
+        months.append({
+            "m": m,
+            "tmean": None if temp_col is None else (None if pd.isna(r["tmean"]) else float(r["tmean"])),
+            "p": None if prec_col is None else (None if pd.isna(r["p"]) else float(r["p"]))
+        })
+    # garantir 12 meses
+    bym = {x["m"]: x for x in months}
+    months = [bym.get(m, {"m": m, "tmean": None, "p": None}) for m in range(1,13)]
+
+    # anual (temperatura)
+    annual = {}
+    if temp_col:
+        # usa min/mean/max do ano (horário) — simples e robusto
+        annual["tmin"] = float(df[temp_col].min()) if df[temp_col].notna().any() else None
+        annual["tmax"] = float(df[temp_col].max()) if df[temp_col].notna().any() else None
+        annual["tmean"] = float(df[temp_col].mean()) if df[temp_col].notna().any() else None
+    else:
+        annual["tmin"]=annual["tmax"]=annual["tmean"]=None
+
+    if prec_col:
+        p_total = float(df[prec_col].sum()) if df[prec_col].notna().any() else None
+        p_months = [m["p"] for m in months if m["p"] is not None]
+        annual["p_total"] = p_total
+        annual["p_month_min"] = float(min(p_months)) if p_months else None
+        annual["p_month_max"] = float(max(p_months)) if p_months else None
+        annual["p_month_mean"] = float(sum(p_months)/len(p_months)) if p_months else None
+    else:
+        annual["p_total"]=annual["p_month_min"]=annual["p_month_max"]=annual["p_month_mean"]=None
+
+    # completude aproximada (horária)
+    # esperado: 24*365 (ou 366)
+    days = 366 if (year%4==0 and (year%100!=0 or year%400==0)) else 365
+    expected = 24 * days
+    observed = df["dt"].dt.floor("H").nunique()
+    annual["coverage"] = float(observed/expected) if expected else None
+
+    return {"months": months, "annual": annual}
+
+def build(zip_path: str, out_root: str = "."):
+    year_m = re.search(r"(19|20)\d{2}", os.path.basename(zip_path))
+    if not year_m:
+        raise ValueError("Nome do zip deve conter o ano (ex: 2024.zip).")
+    year = int(year_m.group(0))
+
+    stations = {}  # id -> meta (com years)
+    data_dir = os.path.join(out_root, "data")
+    os.makedirs(data_dir, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        members = [m for m in z.namelist() if m.lower().endswith((".csv",".txt"))]
+
+        for m in members:
+            raw = z.read(m)
+            # tenta decodificar
+            text = None
+            for enc in ("utf-8", "latin1", "cp1252"):
+                try:
+                    text = raw.decode(enc)
+                    break
+                except:
+                    continue
+            if text is None:
+                continue
+
+            meta = parse_meta(text)
+
+            # se não achou id no cabeçalho, tenta achar no nome do arquivo
+            if not meta["id"]:
+                mm = re.search(r"\b([A-Z]\d{3,4})\b", os.path.basename(m).upper())
+                if mm:
+                    meta["id"] = mm.group(1)
+
+            if not meta["id"]:
+                # não dá pra indexar sem id
+                continue
+
+            skip = find_header_start(text)
+            # detecta delimitador provável
+            sample_line = text.splitlines()[skip] if skip < len(text.splitlines()) else ""
+            sep = ";" if sample_line.count(";") >= sample_line.count(",") else ","
+
+            try:
+                df = pd.read_csv(BytesIO(raw), sep=sep, skiprows=skip, engine="python")
+            except:
+                continue
+
+            # escolhe colunas
+            cols = list(df.columns)
+            temp_col = pick_col(cols, TEMP_KEYS)
+            prec_col = pick_col(cols, PREC_KEYS)
+
+            try:
+                metrics = compute_metrics(df, temp_col, prec_col, year)
+            except:
+                continue
+
+            # nome/UF fallback (se ausentes)
+            if not meta["name"]:
+                meta["name"] = f"Estação {meta['id']}"
+            if not meta["uf"]:
+                # tenta extrair UF do nome
+                mm = re.search(r"\b([A-Z]{2})\b", meta["name"])
+                if mm:
+                    meta["uf"] = mm.group(1)
+                else:
+                    meta["uf"] = "BR"
+
+            sid = meta["id"]
+
+            # grava JSON da estação/ano
+            out_station_dir = os.path.join(data_dir, sid)
+            os.makedirs(out_station_dir, exist_ok=True)
+            out_json = os.path.join(out_station_dir, f"{year}.json")
+
+            payload = {
+                "station": sid,
+                "year": year,
+                "months": metrics["months"],
+                "annual": metrics["annual"]
+            }
+
+            with open(out_json, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+
+            # atualiza catálogo
+            st = stations.get(sid, {
+                "id": sid,
+                "name": meta["name"],
+                "uf": meta["uf"],
+                "lat": meta["lat"],
+                "lon": meta["lon"],
+                "alt": meta["alt"],
+                "years": []
+            })
+            if year not in st["years"]:
+                st["years"].append(year)
+            # atualiza campos se antes estavam vazios
+            for k in ("name","uf","lat","lon","alt"):
+                if st.get(k) in (None, "", "BR") and meta.get(k) not in (None,""):
+                    st[k] = meta[k]
+            stations[sid] = st
+
+    # salva stations.json
+    stations_list = list(stations.values())
+    stations_list.sort(key=lambda x: (x.get("uf",""), x.get("name","")))
+    with open(os.path.join(out_root, "stations.json"), "w", encoding="utf-8") as f:
+        json.dump(stations_list, f, ensure_ascii=False, indent=2)
+
+    print(f"OK: {len(stations_list)} estações com dados para {year}.")
+    print("Gerado: stations.json e pasta data/")
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) < 2:
+        print("Uso: python tools/build_inmet.py raw/2024.zip")
+        raise SystemExit(1)
+    build(sys.argv[1], out_root=".")
