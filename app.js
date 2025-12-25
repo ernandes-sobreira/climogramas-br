@@ -19,6 +19,7 @@ function setYearOptions(st){
   const sel = document.getElementById("year");
   sel.innerHTML = "";
   const years = (st?.years || []).slice().sort((a,b)=>b-a);
+
   if(years.length === 0){
     const opt = document.createElement("option");
     opt.value = "";
@@ -27,6 +28,7 @@ function setYearOptions(st){
     sel.disabled = true;
     return;
   }
+
   sel.disabled = false;
   for(const y of years){
     const opt = document.createElement("option");
@@ -68,10 +70,11 @@ function applyFilter(){
 }
 
 function initMap(){
-  map = L.map('map', { zoomControl: true }).setView([-14.2, -55.9], 4);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  map = L.map("map", { zoomControl:true }).setView([-14.2, -55.9], 4);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
-    attribution: '&copy; OpenStreetMap'
+    attribution: "&copy; OpenStreetMap"
   }).addTo(map);
 
   markersLayer = L.layerGroup().addTo(map);
@@ -79,8 +82,10 @@ function initMap(){
 
 function renderMapMarkers(){
   markersLayer.clearLayers();
+
   for(const st of filtered){
     if(st.lat == null || st.lon == null) continue;
+
     const m = L.circleMarker([st.lat, st.lon], {
       radius: (selectedStation?.id === st.id) ? 7 : 5,
       weight: 1,
@@ -89,7 +94,7 @@ function renderMapMarkers(){
     }).addTo(markersLayer);
 
     m.bindTooltip(`<b>${st.name} (${st.uf})</b><br/>ID ${st.id}<br/>anos: ${st.years?.length || 0}`);
-    m.on('click', () => selectStation(st.id, false));
+    m.on("click", () => selectStation(st.id, false));
   }
 }
 
@@ -102,13 +107,14 @@ async function selectStation(id, panTo){
   renderMapMarkers();
 
   document.getElementById("stationTitle").textContent = `${st.name} (${st.uf})`;
-  document.getElementById("stationMeta").textContent = `ID ${st.id} • ${niceCoord(st.lat)}, ${niceCoord(st.lon)} • alt: ${st.alt ?? "—"} m`;
+  document.getElementById("stationMeta").textContent =
+    `ID ${st.id} • ${niceCoord(st.lat)}, ${niceCoord(st.lon)} • alt: ${st.alt ?? "—"} m`;
 
   setYearOptions(st);
   const year = document.getElementById("year").value;
 
   if(panTo && st.lat != null && st.lon != null){
-    map.setView([st.lat, st.lon], 8, { animate: true });
+    map.setView([st.lat, st.lon], 8, { animate:true });
   }
 
   if(year) await loadAndPlot(st.id, year);
@@ -117,8 +123,9 @@ async function selectStation(id, panTo){
 async function loadAndPlot(stationId, year){
   const url = `assets/data/${stationId}/${year}.json`;
   let data;
+
   try{
-    const r = await fetch(url, { cache: "no-store" });
+    const r = await fetch(url, { cache:"no-store" });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     data = await r.json();
   }catch(err){
@@ -132,9 +139,11 @@ async function loadAndPlot(stationId, year){
   renderCards(data);
   plotClimogram(data);
 }
+
 function renderCards(d){
   const c = document.getElementById("cards");
   const a = d.annual || {};
+
   const cards = [
     ["T mín (ano)", `${fmt(a.tmin,1)} °C`],
     ["T méd (ano)", `${fmt(a.tmean,1)} °C`],
@@ -145,11 +154,11 @@ function renderCards(d){
     ["Chuva máx (mês)", `${fmt(a.p_month_max,1)} mm`],
     ["Completude", `${fmt((a.coverage||0)*100,0)} %`],
   ];
+
   c.innerHTML = cards.map(([k,v]) => `
     <div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>
   `).join("");
 }
-// linha da temperatura média anual
 
 function plotClimogram(d){
   const months = d.months || [];
@@ -159,23 +168,13 @@ function plotClimogram(d){
 
   const a = d.annual || {};
 
-  // linha da temperatura média anual (no eixo da direita)
-const tMean = a.tmean ?? null;
-const tMeanLine = x.map(_ => tMean);
-
-const traceTempMean = {
-  x,
-  y: tMeanLine,
-  type: "scatter",
-  mode: "lines",
-  name: "Temp. média anual (°C)",
-  yaxis: "y2",
-  line: { dash: "dot", width: 2 }
-};
-  
-  // linha da precipitação média mensal do ano
+  // Precipitação média mensal do ano (linha pontilhada no eixo esquerdo)
   const pMean = a.p_month_mean ?? null;
   const pMeanLine = x.map(_ => pMean);
+
+  // Temperatura média anual (linha pontilhada no eixo direito)
+  const tMean = a.tmean ?? null;
+  const tMeanLine = x.map(_ => tMean);
 
   const tracePrec = {
     x, y: p,
@@ -186,13 +185,12 @@ const traceTempMean = {
   };
 
   const tracePrecMean = {
-    x,
-    y: pMeanLine,
-    type: "scatter",
-    mode: "lines",
-    name: "Precipitação média mensal (ano)",
-    yaxis: "y",
-    line: { dash: "dot", width: 2 }
+    x, y: pMeanLine,
+    type:"scatter",
+    mode:"lines",
+    name:"Precipitação média mensal (ano)",
+    yaxis:"y",
+    line:{ dash:"dot", width:2 }
   };
 
   const traceTemp = {
@@ -204,6 +202,18 @@ const traceTempMean = {
     line:{ width:3 },
     marker:{ size:6 }
   };
+
+  const traceTempMean = {
+    x, y: tMeanLine,
+    type:"scatter",
+    mode:"lines",
+    name:"Temp. média anual (°C)",
+    yaxis:"y2",
+    line:{ dash:"dot", width:2 }
+  };
+
+  const traces = [tracePrec, tracePrecMean, traceTemp];
+  if(tMean !== null) traces.push(traceTempMean);
 
   const layout = {
     margin:{ l:55, r:55, t:25, b:45 },
@@ -226,31 +236,24 @@ const traceTempMean = {
   };
 
   Plotly.newPlot("chart", traces, layout, {
-  displaylogo:false,
-  responsive:true,
-  toImageButtonOptions:{ format:"png", filename:`climograma_${d.station}_${d.year}` }
-});newPlot(
-  "chart",
-  [tracePrec, tracePrecMean, traceTemp, traceTempMean],
-  layout,
-  {
-      displaylogo:false,
-      responsive:true,
-      toImageButtonOptions:{ format:"png", filename:`climograma_${d.station}_${d.year}` }
-    }
-  );
+    displaylogo:false,
+    responsive:true,
+    toImageButtonOptions:{ format:"png", filename:`climograma_${d.station}_${d.year}` }
+  });
 }
-
 
 function exportCSV(){
   if(!window.__lastData) return;
   const d = window.__lastData;
+
   const rows = [["station","year","month","tmean_c","precip_mm"]];
-  for(const m of d.months){
+  for(const m of d.months || []){
     rows.push([d.station, d.year, m.m, m.tmean ?? "", m.p ?? ""]);
   }
+
   const csv = rows.map(r => r.join(",")).join("\n");
   const blob = new Blob([csv], { type:"text/csv;charset=utf-8;" });
+
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `climograma_${d.station}_${d.year}.csv`;
@@ -260,10 +263,9 @@ function exportCSV(){
 async function bootstrap(){
   initMap();
 
-  const r = await fetch("assets/stations.json", { cache: "no-store" });
+  const r = await fetch("assets/stations.json", { cache:"no-store" });
   STATIONS = await r.json();
 
-  // ordena por UF depois nome
   STATIONS.sort((a,b) => (a.uf+a.name).localeCompare(b.uf+b.name, "pt-BR"));
 
   filtered = STATIONS.slice();
@@ -279,8 +281,6 @@ async function bootstrap(){
   });
 
   document.getElementById("btnExportPNG").addEventListener("click", async () => {
-    // Plotly já tem export interno; aqui só força abrir o menu se quiser
-    // Usuário pode clicar no ícone da câmera do Plotly também
     alert("Dica: use o ícone de câmera no gráfico (Plotly) para exportar PNG.");
   });
 
@@ -288,4 +288,3 @@ async function bootstrap(){
 }
 
 bootstrap();
-
