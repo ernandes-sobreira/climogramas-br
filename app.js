@@ -115,7 +115,7 @@ async function selectStation(id, panTo){
 }
 
 async function loadAndPlot(stationId, year){
-  const url = `data/${stationId}/${year}.json`;
+  const url = `assets/data/${stationId}/${year}.json`;
   let data;
   try{
     const r = await fetch(url, { cache: "no-store" });
@@ -123,16 +123,15 @@ async function loadAndPlot(stationId, year){
     data = await r.json();
   }catch(err){
     document.getElementById("chart").innerHTML = `<div style="padding:14px;color:#b91c1c">
-      Não encontrei dados para esta estação/ano (${stationId}/${year}).<br/>
-      Gere o JSON em <code>data/${stationId}/${year}.json</code>.
+      Não encontrei dados para esta estação/ano (${stationId}/${year}).
     </div>`;
     return;
   }
 
+  window.__lastData = data;
   renderCards(data);
   plotClimogram(data);
 }
-
 function renderCards(d){
   const c = document.getElementById("cards");
   const a = d.annual || {};
@@ -158,28 +157,28 @@ function plotClimogram(d){
   const p = months.map(m => m.p);
 
   const a = d.annual || {};
-  const tmin = a.tmin ?? null;
-  const tmax = a.tmax ?? null;
-  const tmean = a.tmean ?? null;
 
+  // linha da precipitação média mensal do ano
   const pMean = a.p_month_mean ?? null;
-const pMeanLine = x.map(_ => pMean);
+  const pMeanLine = x.map(_ => pMean);
 
-const tracePrecMean = {
-  x,
-  y: pMeanLine,
-  type: "scatter",
-  mode: "lines",
-  name: "Precipitação média mensal (ano)",
-  yaxis: "y",
-  line: {
-    dash: "dot",
-    width: 2
-  }
-};
+  const tracePrec = {
+    x, y: p,
+    type:"bar",
+    name:"Precipitação mensal (mm)",
+    yaxis:"y",
+    opacity:0.85
+  };
 
-
-  // Faixa anual de temperatura (min-max) como "band"
+  const tracePrecMean = {
+    x,
+    y: pMeanLine,
+    type: "scatter",
+    mode: "lines",
+    name: "Precipitação média mensal (ano)",
+    yaxis: "y",
+    line: { dash: "dot", width: 2 }
+  };
 
   const traceTemp = {
     x, y: t,
@@ -191,18 +190,8 @@ const tracePrecMean = {
     marker:{ size:6 }
   };
 
-
-  const tracePrec = {
-    x, y: p,
-    type:"bar",
-    name:"Precipitação mensal (mm)",
-    yaxis:"y",
-    opacity:0.85
-  };
-
   const layout = {
     margin:{ l:55, r:55, t:25, b:45 },
-    barmode:"group",
     hovermode:"x unified",
     legend:{ orientation:"h", y:1.15 },
     xaxis:{ title:"Mês" },
@@ -221,16 +210,18 @@ const tracePrecMean = {
     plot_bgcolor:"rgba(0,0,0,0)"
   };
 
- Plotly.newPlot(
-  "chart",
-  [tracePrec, tracePrecMean, traceTemp],
-  layout,
-  {
-    displaylogo:false,
-    responsive:true,
-    toImageButtonOptions:{ format:"png", filename:`climograma_${d.station}_${d.year}` }
-  }
-);
+  Plotly.newPlot(
+    "chart",
+    [tracePrec, tracePrecMean, traceTemp],
+    layout,
+    {
+      displaylogo:false,
+      responsive:true,
+      toImageButtonOptions:{ format:"png", filename:`climograma_${d.station}_${d.year}` }
+    }
+  );
+}
+
 
 function exportCSV(){
   if(!window.__lastData) return;
@@ -279,14 +270,3 @@ async function bootstrap(){
 
 bootstrap();
 
-// guarda o último dado carregado pro CSV
-const _loadAndPlot = loadAndPlot;
-loadAndPlot = async function(stationId, year){
-  const url = `assets/data/${stationId}/${year}.json`;
-  const r = await fetch(url, { cache: "no-store" });
-  if(!r.ok){ return _loadAndPlot(stationId, year); }
-  const d = await r.json();
-  window.__lastData = d;
-  renderCards(d);
-  plotClimogram(d);
-};
