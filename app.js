@@ -262,7 +262,7 @@ function exportCSV(){
 async function bootstrap(){
   initMap();
 
-  const r = await fetch("stations.json", { cache: "no-store" });
+  const r = await fetch("assets/stations.json"), { cache: "no-store" });
   STATIONS = await r.json();
 
   // ordena por UF depois nome
@@ -294,7 +294,7 @@ bootstrap();
 // guarda o último dado carregado pro CSV
 const _loadAndPlot = loadAndPlot;
 loadAndPlot = async function(stationId, year){
-  const url = `data/${stationId}/${year}.json`;
+  const url = `assets/data/${stationId}/${year}.json`;
   const r = await fetch(url, { cache: "no-store" });
   if(!r.ok){ return _loadAndPlot(stationId, year); }
   const d = await r.json();
