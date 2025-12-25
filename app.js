@@ -149,6 +149,20 @@ function renderCards(d){
     <div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>
   `).join("");
 }
+// linha da temperatura média anual
+const tMean = a.tmean ?? null;
+const tMeanLine = x.map(_ => tMean);
+
+const traceTempMean = {
+  x,
+  y: tMeanLine,
+  type: "scatter",
+  mode: "lines",
+  name: "Temp. média anual (°C)",
+  yaxis: "y2",
+  line: { dash: "dot", width: 2 }
+};
+
 
 function plotClimogram(d){
   const months = d.months || [];
@@ -211,10 +225,10 @@ function plotClimogram(d){
   };
 
   Plotly.newPlot(
-    "chart",
-    [tracePrec, tracePrecMean, traceTemp],
-    layout,
-    {
+  "chart",
+  [tracePrec, tracePrecMean, traceTemp, traceTempMean],
+  layout,
+  {
       displaylogo:false,
       responsive:true,
       toImageButtonOptions:{ format:"png", filename:`climograma_${d.station}_${d.year}` }
