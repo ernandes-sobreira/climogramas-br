@@ -191,14 +191,6 @@ const tracePrecMean = {
     marker:{ size:6 }
   };
 
-  const traceMean = {
-    x, y: meanLine,
-    type:"scatter",
-    mode:"lines",
-    name:"Temp. média do ano (°C)",
-    yaxis:"y2",
-    line:{ width:2, dash:"dot" }
-  };
 
   const tracePrec = {
     x, y: p,
