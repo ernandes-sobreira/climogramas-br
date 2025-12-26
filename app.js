@@ -1,25 +1,35 @@
 const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 
+// Config UX/performance
+const MIN_QUERY = 2;      // mínimo de letras pra buscar
+const MAX_RESULTS = 60;   // quantos itens aparecem na lista
+const MAP_MAX_POINTS = 400; // limite de pontos no mapa (segurança)
+
 let STATIONS = [];
 let filtered = [];
 let selectedStation = null;
+
 let map, markersLayer;
 
 function fmt(n, digits=1){
   if(n === null || n === undefined || Number.isNaN(n)) return "—";
   return Number(n).toFixed(digits);
 }
-
 function niceCoord(x){
   if(x === null || x === undefined) return "—";
   return (Math.round(x*10000)/10000).toString();
 }
 
+function setHint(text){
+  const list = document.getElementById("list");
+  list.innerHTML = `<div style="padding:14px;color:#64748b;font-size:13px;line-height:1.4">${text}</div>`;
+}
+
 function setYearOptions(st){
   const sel = document.getElementById("year");
   sel.innerHTML = "";
-  const years = (st?.years || []).slice().sort((a,b)=>b-a);
 
+  const years = (st?.years || []).slice().sort((a,b)=>b-a);
   if(years.length === 0){
     const opt = document.createElement("option");
     opt.value = "";
@@ -36,14 +46,28 @@ function setYearOptions(st){
     opt.textContent = y;
     sel.appendChild(opt);
   }
+
+  // tenta auto-selecionar 2024 se existir
+  if(years.includes(2024)) sel.value = "2024";
 }
 
 function renderList(){
+  const countNote = document.getElementById("countNote");
   const list = document.getElementById("list");
-  list.innerHTML = "";
-  document.getElementById("countNote").textContent = `${filtered.length} estações`;
 
-  for(const st of filtered){
+  // Se não tem filtro ativo: deixa mensagem (não lista tudo)
+  const q = document.getElementById("q").value.trim();
+  if(q.length < MIN_QUERY){
+    countNote.textContent = `Digite pelo menos ${MIN_QUERY} letras`;
+    setHint(`🔎 Comece digitando acima (mínimo <b>${MIN_QUERY}</b> letras).<br/>Ex.: <b>Cuiabá</b>, <b>MT</b>, <b>A901</b>.`);
+    return;
+  }
+
+  countNote.textContent = `${Math.min(filtered.length, MAX_RESULTS)} de ${filtered.length} estações`;
+  list.innerHTML = "";
+
+  const shown = filtered.slice(0, MAX_RESULTS);
+  for(const st of shown){
     const div = document.createElement("div");
     div.className = "item" + (selectedStation?.id === st.id ? " active" : "");
     div.innerHTML = `
@@ -53,16 +77,40 @@ function renderList(){
     div.onclick = () => selectStation(st.id, true);
     list.appendChild(div);
   }
+
+  // se tem mais resultados que o limite
+  if(filtered.length > MAX_RESULTS){
+    const more = document.createElement("div");
+    more.style.padding = "10px 12px";
+    more.style.color = "#64748b";
+    more.style.fontSize = "12px";
+    more.innerHTML = `Mostrando os <b>${MAX_RESULTS}</b> primeiros. Refine a busca para ver os demais.`;
+    list.appendChild(more);
+  }
 }
 
 function applyFilter(){
   const q = document.getElementById("q").value.trim().toLowerCase();
-if(q.length < 2){
-  filtered = [];
+
+  if(q.length < MIN_QUERY){
+    filtered = [];
+    renderList();
+    renderMapMarkers();
+    return;
+  }
+
+  filtered = STATIONS.filter(st => {
+    const s = `${st.id} ${st.name} ${st.uf}`.toLowerCase();
+    return s.includes(q);
+  });
+
+  // Ordena por UF e nome para ficar bonito
+  filtered.sort((a,b) => (a.uf+a.name).localeCompare(b.uf+b.name, "pt-BR"));
+
   renderList();
   renderMapMarkers();
-  return;
 }
+
 function initMap(){
   map = L.map("map", { zoomControl:true }).setView([-14.2, -55.9], 4);
 
@@ -77,7 +125,13 @@ function initMap(){
 function renderMapMarkers(){
   markersLayer.clearLayers();
 
-  for(const st of filtered){
+  // sem busca ativa = nada no mapa (leve e bonito)
+  const q = document.getElementById("q").value.trim();
+  if(q.length < MIN_QUERY) return;
+
+  const shown = filtered.slice(0, MAP_MAX_POINTS);
+
+  for(const st of shown){
     if(st.lat == null || st.lon == null) continue;
 
     const m = L.circleMarker([st.lat, st.lon], {
@@ -97,20 +151,22 @@ async function selectStation(id, panTo){
   if(!st) return;
 
   selectedStation = st;
-  renderList();
-  renderMapMarkers();
 
   document.getElementById("stationTitle").textContent = `${st.name} (${st.uf})`;
   document.getElementById("stationMeta").textContent =
     `ID ${st.id} • ${niceCoord(st.lat)}, ${niceCoord(st.lon)} • alt: ${st.alt ?? "—"} m`;
 
   setYearOptions(st);
-  const year = document.getElementById("year").value;
+
+  // re-render para marcar ativo
+  renderList();
+  renderMapMarkers();
 
   if(panTo && st.lat != null && st.lon != null){
     map.setView([st.lat, st.lon], 8, { animate:true });
   }
 
+  const year = document.getElementById("year").value;
   if(year) await loadAndPlot(st.id, year);
 }
 
@@ -123,8 +179,9 @@ async function loadAndPlot(stationId, year){
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     data = await r.json();
   }catch(err){
+    document.getElementById("cards").innerHTML = "";
     document.getElementById("chart").innerHTML = `<div style="padding:14px;color:#b91c1c">
-      Não encontrei dados para esta estação/ano (${stationId}/${year}).
+      Não encontrei dados para <b>${stationId}</b> em <b>${year}</b>.
     </div>`;
     return;
   }
@@ -201,18 +258,15 @@ function plotClimogram(d){
   } : null;
 
   const traces = [tracePrec, traceTemp].filter(Boolean);
-  if(tracePrecMean) traces.splice(1, 0, tracePrecMean); // coloca a média da chuva antes da temp
+  if(tracePrecMean) traces.splice(1, 0, tracePrecMean);
   if(traceTempMean) traces.push(traceTempMean);
 
   const layout = {
     autosize: true,
-    height: Math.max(460, Math.floor(window.innerHeight * 0.55)),
-    margin:{ l:60, r:60, t:20, b:95 },
+    height: 520,
+    margin:{ l:60, r:60, t:15, b:95 },
     hovermode:"x unified",
-
-    // legenda EMBAIXO (resolve “amassado”)
     legend:{ orientation:"h", x:0, y:-0.25, yanchor:"top" },
-
     xaxis:{ title:"Mês" },
     yaxis:{
       title:"Precipitação (mm)",
@@ -234,11 +288,9 @@ function plotClimogram(d){
     responsive:true,
     toImageButtonOptions:{ format:"png", filename:`climograma_${d.station}_${d.year}` }
   }).then(() => {
-    // garante ajuste final do tamanho (GitHub Pages/Chrome às vezes precisa)
     setTimeout(() => Plotly.Plots.resize("chart"), 80);
   });
 }
-
 
 function exportCSV(){
   if(!window.__lastData) return;
@@ -261,15 +313,19 @@ function exportCSV(){
 async function bootstrap(){
   initMap();
 
+  // Carrega estações
   const r = await fetch("assets/stations.json", { cache:"no-store" });
   STATIONS = await r.json();
 
+  // Ordena (caso venha bagunçado)
   STATIONS.sort((a,b) => (a.uf+a.name).localeCompare(b.uf+b.name, "pt-BR"));
 
-  filtered = STATIONS.slice();
-  renderList();
-  renderMapMarkers();
+  // Estado inicial (nada listado)
+  filtered = [];
+  document.getElementById("countNote").textContent = `Digite pelo menos ${MIN_QUERY} letras`;
+  setHint(`🔎 Comece digitando acima (mínimo <b>${MIN_QUERY}</b> letras).<br/>Ex.: <b>Cuiabá</b>, <b>MT</b>, <b>A901</b>.`);
 
+  // listeners
   document.getElementById("q").addEventListener("input", applyFilter);
 
   document.getElementById("year").addEventListener("change", async () => {
@@ -278,18 +334,16 @@ async function bootstrap(){
     await loadAndPlot(selectedStation.id, year);
   });
 
-  document.getElementById("btnExportPNG").addEventListener("click", async () => {
-    alert("Dica: use o ícone de câmera no gráfico (Plotly) para exportar PNG.");
+  document.getElementById("btnExportPNG").addEventListener("click", () => {
+    alert("Dica: use o ícone de câmera dentro do gráfico (Plotly) para exportar PNG.");
   });
 
   document.getElementById("btnExportCSV").addEventListener("click", exportCSV);
+
+  window.addEventListener("resize", () => {
+    const el = document.getElementById("chart");
+    if(el && el.data) Plotly.Plots.resize(el);
+  });
 }
 
 bootstrap();
-window.addEventListener("resize", () => {
-  const el = document.getElementById("chart");
-  if(el && el.data) Plotly.Plots.resize(el);
-});
-
-
-
