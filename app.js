@@ -1,9 +1,9 @@
 const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 
 // Config UX/performance
-const MIN_QUERY = 2;      // mínimo de letras pra buscar
-const MAX_RESULTS = 60;   // quantos itens aparecem na lista
-const MAP_MAX_POINTS = 400; // limite de pontos no mapa (segurança)
+const MIN_QUERY = 2;      
+const MAX_RESULTS = 60;   
+const MAP_MAX_POINTS = 400;
 
 let STATIONS = [];
 let filtered = [];
@@ -47,7 +47,6 @@ function setYearOptions(st){
     sel.appendChild(opt);
   }
 
-  // tenta auto-selecionar 2024 se existir
   if(years.includes(2024)) sel.value = "2024";
 }
 
@@ -55,7 +54,6 @@ function renderList(){
   const countNote = document.getElementById("countNote");
   const list = document.getElementById("list");
 
-  // Se não tem filtro ativo: deixa mensagem (não lista tudo)
   const q = document.getElementById("q").value.trim();
   if(q.length < MIN_QUERY){
     countNote.textContent = `Digite pelo menos ${MIN_QUERY} letras`;
@@ -78,7 +76,6 @@ function renderList(){
     list.appendChild(div);
   }
 
-  // se tem mais resultados que o limite
   if(filtered.length > MAX_RESULTS){
     const more = document.createElement("div");
     more.style.padding = "10px 12px";
@@ -104,7 +101,6 @@ function applyFilter(){
     return s.includes(q);
   });
 
-  // Ordena por UF e nome para ficar bonito
   filtered.sort((a,b) => (a.uf+a.name).localeCompare(b.uf+b.name, "pt-BR"));
 
   renderList();
@@ -125,7 +121,6 @@ function initMap(){
 function renderMapMarkers(){
   markersLayer.clearLayers();
 
-  // sem busca ativa = nada no mapa (leve e bonito)
   const q = document.getElementById("q").value.trim();
   if(q.length < MIN_QUERY) return;
 
@@ -158,7 +153,6 @@ async function selectStation(id, panTo){
 
   setYearOptions(st);
 
-  // re-render para marcar ativo
   renderList();
   renderMapMarkers();
 
@@ -313,19 +307,15 @@ function exportCSV(){
 async function bootstrap(){
   initMap();
 
-  // Carrega estações
   const r = await fetch("assets/stations.json", { cache:"no-store" });
   STATIONS = await r.json();
 
-  // Ordena (caso venha bagunçado)
   STATIONS.sort((a,b) => (a.uf+a.name).localeCompare(b.uf+b.name, "pt-BR"));
 
-  // Estado inicial (nada listado)
   filtered = [];
   document.getElementById("countNote").textContent = `Digite pelo menos ${MIN_QUERY} letras`;
   setHint(`🔎 Comece digitando acima (mínimo <b>${MIN_QUERY}</b> letras).<br/>Ex.: <b>Cuiabá</b>, <b>MT</b>, <b>A901</b>.`);
 
-  // listeners
   document.getElementById("q").addEventListener("input", applyFilter);
 
   document.getElementById("year").addEventListener("change", async () => {
