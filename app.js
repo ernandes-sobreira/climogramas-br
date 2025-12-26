@@ -67,6 +67,7 @@ function applyFilter(){
   }
   renderList();
   renderMapMarkers();
+  document.getElementById("countNote").textContent = "Digite para buscar estações";
 }
 
 function initMap(){
@@ -288,3 +289,4 @@ async function bootstrap(){
 }
 
 bootstrap();
+
