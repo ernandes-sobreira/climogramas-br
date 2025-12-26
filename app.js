@@ -32,8 +32,14 @@ async function loadAvailableYears(){
   AVAILABLE_YEARS.sort((a,b)=>b-a);
 }
 
-function setYearOptions(){
-  const sel = el("year");
+fsetYearOptions();
+
+// escolhe um ano que realmente exista para a estação
+let year = el("year").value;
+if (selectedStation.years && !selectedStation.years.includes(Number(year))) {
+  year = String(selectedStation.years[0]);
+  el("year").value = year;
+}
   sel.innerHTML = "";
   for(const y of AVAILABLE_YEARS){
     const o = document.createElement("option");
