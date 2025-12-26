@@ -417,6 +417,44 @@ async function bootstrap(){
   yearSel.innerHTML = `<option value="${DEFAULT_YEAR}">${DEFAULT_YEAR}</option>`;
   yearSel.value = String(DEFAULT_YEAR);
   yearSel.disabled = false;
-}
+  // === Mobile: abre/fecha painel de estações ===
+  const leftPanel = document.querySelector(".panel.left");
+
+  // cria overlay (escurece fundo)
+  const overlay = document.createElement("div");
+  overlay.className = "leftOverlay";
+  document.body.appendChild(overlay);
+
+  function closeStations(){
+    leftPanel.classList.remove("open");
+    overlay.classList.remove("show");
+    const btn = document.getElementById("btnStations");
+    if(btn) btn.textContent = "Abrir";
+  }
+
+  function toggleStations(){
+    const isOpen = leftPanel.classList.toggle("open");
+    overlay.classList.toggle("show", isOpen);
+    const btn = document.getElementById("btnStations");
+    if(btn) btn.textContent = isOpen ? "Fechar" : "Abrir";
+  }
+
+  const btnStations = document.getElementById("btnStations");
+  if(btnStations){
+    btnStations.addEventListener("click", toggleStations);
+  }
+  overlay.addEventListener("click", closeStations);
+
+  // fecha automaticamente quando escolher uma estação (no celular)
+  const _selectStationOld = selectStation;
+  selectStation = async function(id, panTo){
+    await _selectStationOld(id, panTo);
+    if(window.innerWidth <= 1100){
+      closeStations();
+    }
+  };
+
+
 
 bootstrap();
+
