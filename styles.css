@@ -267,3 +267,56 @@ body{
     max-height: 520px;
   }
 }
+/* ===== Mobile: painel de estações colapsável ===== */
+.headRight{display:flex; gap:10px; align-items:center}
+
+.btn.small{
+  padding:8px 10px;
+  border-radius:12px;
+  font-size:12px;
+}
+
+/* no desktop, não colapsa nada */
+@media (min-width: 1101px){
+  .left{transform:none !important}
+  .leftOverlay{display:none !important}
+}
+
+/* no mobile: vira drawer (painel deslizante) */
+@media (max-width: 1100px){
+  /* overlay escurece o fundo quando o painel abre */
+  .leftOverlay{
+    position: fixed;
+    inset: 0;
+    background: rgba(2,6,23,.35);
+    z-index: 30;
+    display: none;
+  }
+  .leftOverlay.show{display:block;}
+
+  /* painel esquerdo vira drawer */
+  .left{
+    position: fixed;
+    top: 70px;              /* abaixo da topbar */
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    z-index: 40;
+    transform: translateY(110%);
+    transition: transform .22s ease;
+    max-height: calc(100vh - 90px);
+  }
+  .left.open{
+    transform: translateY(0%);
+  }
+
+  /* lista com rolagem boa */
+  .list{
+    overflow:auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* garante que o gráfico não encolha por causa da lista */
+  .chart{min-height: 420px;}
+}
+
