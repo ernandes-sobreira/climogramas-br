@@ -168,14 +168,8 @@ function plotClimogram(d){
   const p = months.map(m => m.p);
 
   const a = d.annual || {};
-
-  // Precipitação média mensal do ano (linha pontilhada no eixo esquerdo)
   const pMean = a.p_month_mean ?? null;
-  const pMeanLine = x.map(_ => pMean);
-
-  // Temperatura média anual (linha pontilhada no eixo direito)
   const tMean = a.tmean ?? null;
-  const tMeanLine = x.map(_ => tMean);
 
   const tracePrec = {
     x, y: p,
@@ -185,14 +179,14 @@ function plotClimogram(d){
     opacity:0.85
   };
 
-  const tracePrecMean = {
-    x, y: pMeanLine,
+  const tracePrecMean = (pMean !== null) ? {
+    x, y: x.map(_ => pMean),
     type:"scatter",
     mode:"lines",
     name:"Precipitação média mensal (ano)",
     yaxis:"y",
     line:{ dash:"dot", width:2 }
-  };
+  } : null;
 
   const traceTemp = {
     x, y: t,
@@ -204,22 +198,28 @@ function plotClimogram(d){
     marker:{ size:6 }
   };
 
-  const traceTempMean = {
-    x, y: tMeanLine,
+  const traceTempMean = (tMean !== null) ? {
+    x, y: x.map(_ => tMean),
     type:"scatter",
     mode:"lines",
     name:"Temp. média anual (°C)",
     yaxis:"y2",
     line:{ dash:"dot", width:2 }
-  };
+  } : null;
 
-  const traces = [tracePrec, tracePrecMean, traceTemp];
-  if(tMean !== null) traces.push(traceTempMean);
+  const traces = [tracePrec, traceTemp].filter(Boolean);
+  if(tracePrecMean) traces.splice(1, 0, tracePrecMean); // coloca a média da chuva antes da temp
+  if(traceTempMean) traces.push(traceTempMean);
 
   const layout = {
-    margin:{ l:55, r:55, t:25, b:45 },
+    autosize: true,
+    height: Math.max(460, Math.floor(window.innerHeight * 0.55)),
+    margin:{ l:60, r:60, t:20, b:95 },
     hovermode:"x unified",
-    legend:{ orientation:"h", y:1.15 },
+
+    // legenda EMBAIXO (resolve “amassado”)
+    legend:{ orientation:"h", x:0, y:-0.25, yanchor:"top" },
+
     xaxis:{ title:"Mês" },
     yaxis:{
       title:"Precipitação (mm)",
@@ -240,8 +240,12 @@ function plotClimogram(d){
     displaylogo:false,
     responsive:true,
     toImageButtonOptions:{ format:"png", filename:`climograma_${d.station}_${d.year}` }
+  }).then(() => {
+    // garante ajuste final do tamanho (GitHub Pages/Chrome às vezes precisa)
+    setTimeout(() => Plotly.Plots.resize("chart"), 80);
   });
 }
+
 
 function exportCSV(){
   if(!window.__lastData) return;
@@ -289,4 +293,9 @@ async function bootstrap(){
 }
 
 bootstrap();
+window.addEventListener("resize", () => {
+  const el = document.getElementById("chart");
+  if(el && el.data) Plotly.Plots.resize(el);
+});
+
 
