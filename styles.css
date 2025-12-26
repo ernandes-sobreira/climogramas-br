@@ -1,5 +1,6 @@
 :root{
   --bg0:#f7f8fb;
+  --bg1:#ffffff;
   --txt:#0f172a;
   --muted:#475569;
   --stroke: rgba(15, 23, 42, .10);
@@ -8,38 +9,65 @@
   --blue:#2563eb;
   --cyan:#06b6d4;
   --indigo:#4f46e5;
+  --green:#16a34a;
+  --amber:#f59e0b;
+
+  --topbarH: 74px;
+  --gap: 14px;
+
+  /* Altura estável do gráfico (o segredo pra parar de “deformar”) */
+  --chartMin: 380px;
+  --chartIdeal: 430px;
+  --chartMax: 520px;
 }
 
 *{ box-sizing:border-box; }
-html, body { height:100%; }
+
+html, body{
+  height:100%;
+}
 
 body{
   margin:0;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
   background: linear-gradient(180deg, #f7f8fb, #eef2ff);
   color: var(--txt);
-  overflow-x:hidden;
 }
 
+/* ===== Topbar ===== */
 .topbar{
-  position: sticky; top:0; z-index: 10;
-  display:flex; gap:16px; align-items:center; justify-content:space-between;
+  position: sticky;
+  top:0;
+  z-index: 10;
+
+  display:flex;
+  gap:16px;
+  align-items:center;
+  justify-content:space-between;
+
   padding:14px 16px;
   background: rgba(255,255,255,.86);
   border-bottom: 1px solid var(--stroke);
   backdrop-filter: blur(10px);
 }
 
-.brand{display:flex; gap:10px; align-items:center}
+.brand{ display:flex; gap:10px; align-items:center; }
 .dot{
   width:14px; height:14px; border-radius:999px;
   background: radial-gradient(circle at 30% 30%, #93c5fd, var(--blue));
   box-shadow: 0 6px 16px rgba(37,99,235,.25);
 }
-.title{font-weight:800; letter-spacing:.2px}
-.subtitle{font-size:12px; color:var(--muted)}
+.title{ font-weight:850; letter-spacing:.2px; line-height:1.1; }
+.subtitle{ font-size:12px; color:var(--muted); margin-top:2px; }
 
-.controls{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.controls{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
 .input,.select{
   padding:10px 12px;
   border:1px solid var(--stroke);
@@ -48,7 +76,8 @@ body{
   outline:none;
   min-width: 220px;
 }
-.select{min-width:120px}
+.select{ min-width:120px; }
+
 .btn{
   padding:10px 12px;
   border-radius:12px;
@@ -56,18 +85,31 @@ body{
   background: linear-gradient(180deg, #ffffff, #f8fafc);
   cursor:pointer;
   box-shadow: 0 6px 18px rgba(2,6,23,.06);
+  transition: transform .12s ease, filter .12s ease;
 }
-.btn:hover{transform: translateY(-1px)}
-.btn.ghost{ background: rgba(255,255,255,.55); }
+.btn:hover{ transform: translateY(-1px); filter: brightness(0.99); }
+.btn:active{ transform: translateY(0px); }
 
+.btn.ghost{
+  background: rgba(255,255,255,.55);
+}
+
+/* “Mostrar todas” (se quiser adicionar um botão) */
+.btn.small{
+  padding:8px 10px;
+  border-radius:12px;
+  font-size:12px;
+}
+
+/* ===== Grid principal ===== */
 .grid{
   display:grid;
   grid-template-columns: 320px 1.05fr 1.25fr;
-  gap:14px;
-  padding:14px;
+  gap: var(--gap);
+  padding: var(--gap);
 
-  /* 👇 isso impede “compressão” e mantém altura boa */
-  min-height: calc(100vh - 78px);
+  /* Faz as colunas terem a mesma altura “de tela”, e o scroll ficar dentro dos painéis */
+  height: calc(100vh - var(--topbarH));
 }
 
 .panel{
@@ -76,28 +118,34 @@ body{
   border-radius:18px;
   box-shadow: var(--shadow);
   overflow:hidden;
-  min-width: 0; /* IMPORTANTÍSSIMO p/ grids (evita esmagar conteúdo) */
+  min-height: 0; /* essencial pra scroll interno funcionar em grid/flex */
 }
 
 .panelHead{
-  display:flex; align-items:baseline; justify-content:space-between;
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:10px;
   padding:14px 14px 10px 14px;
   border-bottom: 1px solid var(--stroke);
 }
-.h{font-weight:800}
-.note{font-size:12px; color:var(--muted)}
+.h{ font-weight:850; }
+.note{ font-size:12px; color:var(--muted); }
 
-.left, .right, .mid{
+/* ===== Painel Esquerdo (Lista) ===== */
+.left{
   display:flex;
   flex-direction:column;
-  min-height: calc(100vh - 92px);
+  min-height: 0;
 }
 
 .list{
   padding:10px;
   overflow:auto;
-  flex:1;
+  flex: 1;
+  min-height: 0;
 }
+
 .item{
   padding:10px 10px;
   border-radius:14px;
@@ -105,10 +153,12 @@ body{
   background: rgba(255,255,255,.7);
   margin-bottom:8px;
   cursor:pointer;
+  transition: border-color .12s ease, box-shadow .12s ease;
 }
-.item:hover{border-color: rgba(37,99,235,.35)}
-.item .name{font-weight:750}
-.item .meta{font-size:12px; color:var(--muted); margin-top:2px}
+.item:hover{ border-color: rgba(37,99,235,.35); }
+.item .name{ font-weight:800; }
+.item .meta{ font-size:12px; color:var(--muted); margin-top:2px; }
+
 .item.active{
   border-color: rgba(37,99,235,.55);
   box-shadow: 0 10px 24px rgba(37,99,235,.10);
@@ -117,73 +167,103 @@ body{
 .legend{
   padding:12px 14px;
   border-top:1px solid var(--stroke);
-  display:flex; gap:10px; align-items:flex-start;
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
 }
 .lg{
   width:10px; height:10px; border-radius:999px;
   background: linear-gradient(180deg, var(--cyan), var(--indigo));
   margin-top:4px;
 }
-.legendText{font-size:12px; color:var(--muted); line-height:1.35}
-
-/* MAPA: ocupa todo o painel do meio */
-.map{
-  width:100%;
-  flex:1;
-  min-height: 420px;
+.legendText{
+  font-size:12px;
+  color:var(--muted);
+  line-height:1.35;
 }
 
-/* Cards */
+/* ===== Painel Meio (Mapa) ===== */
+.mid{
+  display:flex;
+  flex-direction:column;
+  min-height: 0;
+}
+.map{
+  height: 100%;
+  width:100%;
+  min-height: 0;
+}
+
+/* ===== Painel Direito (Cards + Chart) ===== */
+.right{
+  display:flex;
+  flex-direction:column;
+  min-height: 0;
+}
+
 .cards{
   display:grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap:10px;
   padding:12px 14px;
 }
+
 .card{
   border:1px solid rgba(15,23,42,.10);
   background: rgba(255,255,255,.70);
   border-radius:14px;
   padding:10px;
 }
-.card .k{font-size:12px; color:var(--muted)}
-.card .v{font-weight:850; margin-top:4px}
+.card .k{ font-size:12px; color:var(--muted); }
+.card .v{ font-weight:900; margin-top:4px; }
 
-/* 👇 AQUI estava o problema real:
-   o Plotly precisa de um container com altura DEFINIDA e flex correto */
+/* IMPORTANTE: não deixar o gráfico “pegar” a altura do painel */
 .chartWrap{
   padding: 0 12px 12px 12px;
-  flex: 1;
-  display:flex;
-  min-height: 520px;
-}
-.chart{
-  width:100%;
-  flex:1;
-  min-height: 520px;
+  flex: 0 0 auto; /* <- não cresce com a lista */
 }
 
-/* garante que o Plotly não “auto-esmague” o SVG/canvas interno */
-#chart > .js-plotly-plot,
-#chart .plot-container,
-#chart .svg-container{
-  width:100% !important;
-  height:100% !important;
+.chart{
+  width:100%;
+
+  /* altura estável e bonita */
+  height: clamp(var(--chartMin), 42vh, var(--chartMax));
+  min-height: var(--chartMin);
+  max-height: var(--chartMax);
+
+  /* evita bug de “altura zero” em alguns navegadores */
+  display:block;
 }
 
 .footerHint{
   padding:12px 14px;
   border-top:1px solid var(--stroke);
-  font-size:12px; color:var(--muted);
+  font-size:12px;
+  color:var(--muted);
 }
 
-/* Responsivo */
+/* ===== Responsivo ===== */
 @media (max-width: 1100px){
-  .grid{ grid-template-columns: 1fr; min-height:auto; }
-  .left, .right, .mid{ min-height:auto; }
-  .map{ height: 420px; }
-  .cards{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .input{ min-width: 240px; }
-  .chartWrap{ min-height: 460px; }
-  .chart{ min-height: 460px; }
+  :root{
+    --topbarH: 86px;
+  }
+
+  .grid{
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .map{
+    height: 420px;
+  }
+
+  .cards{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chart{
+    height: 420px;
+    min-height: 380px;
+    max-height: 520px;
+  }
 }
