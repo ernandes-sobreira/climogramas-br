@@ -1,9 +1,16 @@
-const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+/* app.js — Climogramas do Brasil (INMET)
+   - Carrega stations.json
+   - Busca dados em assets/data/<stationId>/<year>.json
+   - Plota climograma (precip barras + temp linha) via Plotly
+   - Mapa via Leaflet
+   Ajustes principais:
+   ✅ fallback ano 2024
+   ✅ Plotly não deforma (ResizeObserver + resize)
+   ✅ botão "Mostrar todas" (se existir no HTML)
+*/
 
-// Config UX/performance
-const MIN_QUERY = 2;      
-const MAX_RESULTS = 60;   
-const MAP_MAX_POINTS = 400;
+const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+const DEFAULT_YEAR = 2024;
 
 let STATIONS = [];
 let filtered = [];
@@ -11,35 +18,44 @@ let selectedStation = null;
 
 let map, markersLayer;
 
+// cache simples para não baixar o mesmo JSON repetidamente
+// chave: `${stationId}:${year}` => data
+const DATA_CACHE = new Map();
+
+// ===== Helpers =====
 function fmt(n, digits=1){
   if(n === null || n === undefined || Number.isNaN(n)) return "—";
   return Number(n).toFixed(digits);
 }
+
 function niceCoord(x){
-  if(x === null || x === undefined) return "—";
-  return (Math.round(x*10000)/10000).toString();
+  if(x === null || x === undefined || Number.isNaN(x)) return "—";
+  return (Math.round(Number(x)*10000)/10000).toString();
 }
 
-function setHint(text){
-  const list = document.getElementById("list");
-  list.innerHTML = `<div style="padding:14px;color:#64748b;font-size:13px;line-height:1.4">${text}</div>`;
+function byUFName(a,b){
+  return (a.uf + a.name).localeCompare(b.uf + b.name, "pt-BR", { sensitivity:"base" });
 }
 
+function safeUpper(s){
+  return (s ?? "").toString().toUpperCase();
+}
+
+function el(id){ return document.getElementById(id); }
+
+// ===== UI: anos =====
 function setYearOptions(st){
-  const sel = document.getElementById("year");
+  const sel = el("year");
   sel.innerHTML = "";
 
-  const years = (st?.years || []).slice().sort((a,b)=>b-a);
-  if(years.length === 0){
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "Sem anos";
-    sel.appendChild(opt);
-    sel.disabled = true;
-    return;
-  }
+  // years vindo do JSON (ex: [2024, 2023...])
+  let years = Array.isArray(st?.years) ? st.years.slice() : [];
 
-  sel.disabled = false;
+  // fallback: se vazio, pelo menos 2024 aparece
+  if(years.length === 0) years = [DEFAULT_YEAR];
+
+  years.sort((a,b)=> b - a);
+
   for(const y of years){
     const opt = document.createElement("option");
     opt.value = y;
@@ -47,66 +63,65 @@ function setYearOptions(st){
     sel.appendChild(opt);
   }
 
-  if(years.includes(2024)) sel.value = "2024";
+  // Seleciona por padrão o DEFAULT_YEAR se existir, senão o primeiro
+  const hasDefault = years.includes(DEFAULT_YEAR);
+  sel.value = hasDefault ? String(DEFAULT_YEAR) : String(years[0]);
+
+  sel.disabled = false;
 }
 
+// ===== UI: lista =====
 function renderList(){
-  const countNote = document.getElementById("countNote");
-  const list = document.getElementById("list");
-
-  const q = document.getElementById("q").value.trim();
-  if(q.length < MIN_QUERY){
-    countNote.textContent = `Digite pelo menos ${MIN_QUERY} letras`;
-    setHint(`🔎 Comece digitando acima (mínimo <b>${MIN_QUERY}</b> letras).<br/>Ex.: <b>Cuiabá</b>, <b>MT</b>, <b>A901</b>.`);
-    return;
-  }
-
-  countNote.textContent = `${Math.min(filtered.length, MAX_RESULTS)} de ${filtered.length} estações`;
+  const list = el("list");
   list.innerHTML = "";
+  el("countNote").textContent = `${filtered.length} estações`;
 
-  const shown = filtered.slice(0, MAX_RESULTS);
-  for(const st of shown){
+  for(const st of filtered){
     const div = document.createElement("div");
     div.className = "item" + (selectedStation?.id === st.id ? " active" : "");
+
     div.innerHTML = `
-      <div class="name">${st.name} <span style="color:#64748b;font-weight:700">(${st.uf})</span></div>
+      <div class="name">${safeUpper(st.name)} <span style="color:#64748b;font-weight:800">(${st.uf})</span></div>
       <div class="meta">ID ${st.id} • ${niceCoord(st.lat)}, ${niceCoord(st.lon)} • anos: ${st.years?.length || 0}</div>
     `;
+
     div.onclick = () => selectStation(st.id, true);
     list.appendChild(div);
   }
-
-  if(filtered.length > MAX_RESULTS){
-    const more = document.createElement("div");
-    more.style.padding = "10px 12px";
-    more.style.color = "#64748b";
-    more.style.fontSize = "12px";
-    more.innerHTML = `Mostrando os <b>${MAX_RESULTS}</b> primeiros. Refine a busca para ver os demais.`;
-    list.appendChild(more);
-  }
 }
 
+// ===== filtro =====
 function applyFilter(){
-  const q = document.getElementById("q").value.trim().toLowerCase();
+  const q = el("q").value.trim().toLowerCase();
 
-  if(q.length < MIN_QUERY){
-    filtered = [];
-    renderList();
-    renderMapMarkers();
-    return;
+  if(!q){
+    filtered = STATIONS.slice();
+  } else {
+    filtered = STATIONS.filter(st => {
+      const s = `${st.id} ${st.name} ${st.uf}`.toLowerCase();
+      return s.includes(q);
+    });
   }
-
-  filtered = STATIONS.filter(st => {
-    const s = `${st.id} ${st.name} ${st.uf}`.toLowerCase();
-    return s.includes(q);
-  });
-
-  filtered.sort((a,b) => (a.uf+a.name).localeCompare(b.uf+b.name, "pt-BR"));
 
   renderList();
   renderMapMarkers();
+
+  // se a estação selecionada não estiver mais no filtro, não “desseleciona”
+  // (mantém o painel direito com a estação atual)
 }
 
+// botão "Mostrar todas" (se existir no HTML)
+function showAll(){
+  el("q").value = "";
+  filtered = STATIONS.slice();
+  renderList();
+  renderMapMarkers();
+
+  // opcional: rolar lista pro topo
+  try{ el("list").scrollTop = 0; }catch(e){}
+}
+
+// ===== Mapa =====
 function initMap(){
   map = L.map("map", { zoomControl:true }).setView([-14.2, -55.9], 4);
 
@@ -121,72 +136,90 @@ function initMap(){
 function renderMapMarkers(){
   markersLayer.clearLayers();
 
-  const q = document.getElementById("q").value.trim();
-  if(q.length < MIN_QUERY) return;
-
-  const shown = filtered.slice(0, MAP_MAX_POINTS);
-
-  for(const st of shown){
+  for(const st of filtered){
     if(st.lat == null || st.lon == null) continue;
 
+    const isSelected = (selectedStation?.id === st.id);
+
     const m = L.circleMarker([st.lat, st.lon], {
-      radius: (selectedStation?.id === st.id) ? 7 : 5,
+      radius: isSelected ? 7 : 5,
       weight: 1,
       opacity: 0.9,
       fillOpacity: 0.65
     }).addTo(markersLayer);
 
-    m.bindTooltip(`<b>${st.name} (${st.uf})</b><br/>ID ${st.id}<br/>anos: ${st.years?.length || 0}`);
+    m.bindTooltip(`<b>${safeUpper(st.name)} (${st.uf})</b><br/>ID ${st.id}<br/>anos: ${st.years?.length || 0}`);
     m.on("click", () => selectStation(st.id, false));
   }
 }
 
+// ===== Selecionar estação =====
 async function selectStation(id, panTo){
   const st = STATIONS.find(s => s.id === id);
   if(!st) return;
 
   selectedStation = st;
 
-  document.getElementById("stationTitle").textContent = `${st.name} (${st.uf})`;
-  document.getElementById("stationMeta").textContent =
-    `ID ${st.id} • ${niceCoord(st.lat)}, ${niceCoord(st.lon)} • alt: ${st.alt ?? "—"} m`;
-
-  setYearOptions(st);
-
   renderList();
   renderMapMarkers();
+
+  el("stationTitle").textContent = `${safeUpper(st.name)} (${st.uf})`;
+  el("stationMeta").textContent = `ID ${st.id} • ${niceCoord(st.lat)}, ${niceCoord(st.lon)} • alt: ${st.alt ?? "—"} m`;
+
+  setYearOptions(st);
+  const year = el("year").value;
 
   if(panTo && st.lat != null && st.lon != null){
     map.setView([st.lat, st.lon], 8, { animate:true });
   }
 
-  const year = document.getElementById("year").value;
+  // carrega e plota imediatamente no ano selecionado
   if(year) await loadAndPlot(st.id, year);
 }
 
+// ===== carregar dados =====
+async function fetchJSON(url){
+  const r = await fetch(url, { cache:"no-store" });
+  if(!r.ok) throw new Error(`HTTP ${r.status}`);
+  return await r.json();
+}
+
 async function loadAndPlot(stationId, year){
+  const key = `${stationId}:${year}`;
   const url = `assets/data/${stationId}/${year}.json`;
+
   let data;
 
   try{
-    const r = await fetch(url, { cache:"no-store" });
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    data = await r.json();
+    if(DATA_CACHE.has(key)){
+      data = DATA_CACHE.get(key);
+    } else {
+      data = await fetchJSON(url);
+      DATA_CACHE.set(key, data);
+    }
   }catch(err){
-    document.getElementById("cards").innerHTML = "";
-    document.getElementById("chart").innerHTML = `<div style="padding:14px;color:#b91c1c">
-      Não encontrei dados para <b>${stationId}</b> em <b>${year}</b>.
+    el("cards").innerHTML = "";
+    el("chart").innerHTML = `<div style="padding:14px;color:#b91c1c;font-weight:700">
+      Não encontrei dados para esta estação/ano (${stationId}/${year}).<br/>
+      <span style="font-weight:500;color:#7f1d1d">Verifique se existe: <code>${url}</code></span>
     </div>`;
     return;
   }
 
   window.__lastData = data;
+
   renderCards(data);
   plotClimogram(data);
+
+  // garante resize depois de renderizar (evita deformação)
+  requestAnimationFrame(() => {
+    try{ Plotly.Plots.resize("chart"); }catch(e){}
+  });
 }
 
+// ===== Cards =====
 function renderCards(d){
-  const c = document.getElementById("cards");
+  const c = el("cards");
   const a = d.annual || {};
 
   const cards = [
@@ -201,17 +234,21 @@ function renderCards(d){
   ];
 
   c.innerHTML = cards.map(([k,v]) => `
-    <div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>
+    <div class="card">
+      <div class="k">${k}</div>
+      <div class="v">${v}</div>
+    </div>
   `).join("");
 }
 
+// ===== Plot =====
 function plotClimogram(d){
-  const months = d.months || [];
-  const x = months.map(m => MONTHS[m.m-1]);
-  const t = months.map(m => m.tmean);
-  const p = months.map(m => m.p);
-
+  const months = Array.isArray(d.months) ? d.months : [];
+  const x = months.map(m => MONTHS[(m.m||1)-1] ?? "");
+  const t = months.map(m => (m.tmean ?? null));
+  const p = months.map(m => (m.p ?? null));
   const a = d.annual || {};
+
   const pMean = a.p_month_mean ?? null;
   const tMean = a.tmean ?? null;
 
@@ -223,16 +260,20 @@ function plotClimogram(d){
     opacity:0.85
   };
 
-  const tracePrecMean = (pMean !== null) ? {
-    x, y: x.map(_ => pMean),
-    type:"scatter",
-    mode:"lines",
-    name:"Precipitação média mensal (ano)",
-    yaxis:"y",
-    line:{ dash:"dot", width:2 }
-  } : null;
+  const traces = [tracePrec];
 
-  const traceTemp = {
+  if(pMean !== null){
+    traces.push({
+      x, y: x.map(_ => pMean),
+      type:"scatter",
+      mode:"lines",
+      name:"Precipitação média mensal (ano)",
+      yaxis:"y",
+      line:{ dash:"dot", width:2 }
+    });
+  }
+
+  traces.push({
     x, y: t,
     type:"scatter",
     mode:"lines+markers",
@@ -240,32 +281,34 @@ function plotClimogram(d){
     yaxis:"y2",
     line:{ width:3 },
     marker:{ size:6 }
-  };
+  });
 
-  const traceTempMean = (tMean !== null) ? {
-    x, y: x.map(_ => tMean),
-    type:"scatter",
-    mode:"lines",
-    name:"Temp. média anual (°C)",
-    yaxis:"y2",
-    line:{ dash:"dot", width:2 }
-  } : null;
-
-  const traces = [tracePrec, traceTemp].filter(Boolean);
-  if(tracePrecMean) traces.splice(1, 0, tracePrecMean);
-  if(traceTempMean) traces.push(traceTempMean);
+  if(tMean !== null){
+    traces.push({
+      x, y: x.map(_ => tMean),
+      type:"scatter",
+      mode:"lines",
+      name:"Temp. média anual (°C)",
+      yaxis:"y2",
+      line:{ dash:"dot", width:2 }
+    });
+  }
 
   const layout = {
-    autosize: true,
-    height: 520,
-    margin:{ l:60, r:60, t:15, b:95 },
+    margin:{ l:62, r:62, t:18, b:48 },
     hovermode:"x unified",
-    legend:{ orientation:"h", x:0, y:-0.25, yanchor:"top" },
+    legend:{
+      orientation:"h",
+      y: -0.25,   // legenda abaixo do gráfico (mais limpo e não aperta o plot)
+      x: 0,
+      font:{ size:12 }
+    },
     xaxis:{ title:"Mês" },
     yaxis:{
       title:"Precipitação (mm)",
       rangemode:"tozero",
-      gridcolor:"rgba(15,23,42,0.08)"
+      gridcolor:"rgba(15,23,42,0.08)",
+      zerolinecolor:"rgba(15,23,42,0.12)"
     },
     yaxis2:{
       title:"Temperatura (°C)",
@@ -281,11 +324,10 @@ function plotClimogram(d){
     displaylogo:false,
     responsive:true,
     toImageButtonOptions:{ format:"png", filename:`climograma_${d.station}_${d.year}` }
-  }).then(() => {
-    setTimeout(() => Plotly.Plots.resize("chart"), 80);
   });
 }
 
+// ===== Export =====
 function exportCSV(){
   if(!window.__lastData) return;
   const d = window.__lastData;
@@ -304,36 +346,77 @@ function exportCSV(){
   a.click();
 }
 
+// ===== Plotly resize “anti-deformação” =====
+function setupPlotResizeObserver(){
+  const chartEl = el("chart");
+  const wrap = chartEl?.parentElement; // .chartWrap
+  if(!wrap) return;
+
+  // ResizeObserver: quando qualquer coisa mudar tamanho, re-redimensiona o Plotly
+  const ro = new ResizeObserver(() => {
+    try{ Plotly.Plots.resize("chart"); }catch(e){}
+  });
+  ro.observe(wrap);
+
+  // também ao redimensionar a janela
+  window.addEventListener("resize", () => {
+    try{ Plotly.Plots.resize("chart"); }catch(e){}
+  });
+}
+
+// ===== Bootstrap =====
 async function bootstrap(){
   initMap();
 
+  // stations.json
   const r = await fetch("assets/stations.json", { cache:"no-store" });
   STATIONS = await r.json();
 
-  STATIONS.sort((a,b) => (a.uf+a.name).localeCompare(b.uf+b.name, "pt-BR"));
+  // ordena e prepara
+  STATIONS.sort(byUFName);
+  filtered = STATIONS.slice();
 
-  filtered = [];
-  document.getElementById("countNote").textContent = `Digite pelo menos ${MIN_QUERY} letras`;
-  setHint(`🔎 Comece digitando acima (mínimo <b>${MIN_QUERY}</b> letras).<br/>Ex.: <b>Cuiabá</b>, <b>MT</b>, <b>A901</b>.`);
+  renderList();
+  renderMapMarkers();
 
-  document.getElementById("q").addEventListener("input", applyFilter);
+  // Eventos
+  el("q").addEventListener("input", applyFilter);
 
-  document.getElementById("year").addEventListener("change", async () => {
+  el("year").addEventListener("change", async () => {
     if(!selectedStation) return;
-    const year = document.getElementById("year").value;
+    const year = el("year").value;
     await loadAndPlot(selectedStation.id, year);
   });
 
-  document.getElementById("btnExportPNG").addEventListener("click", () => {
-    alert("Dica: use o ícone de câmera dentro do gráfico (Plotly) para exportar PNG.");
+  el("btnExportPNG").addEventListener("click", () => {
+    // Exportar via toolbar do Plotly (ícone de câmera)
+    alert("Dica: use o ícone de câmera no gráfico (Plotly) para exportar PNG.");
   });
 
-  document.getElementById("btnExportCSV").addEventListener("click", exportCSV);
+  el("btnExportCSV").addEventListener("click", exportCSV);
 
-  window.addEventListener("resize", () => {
-    const el = document.getElementById("chart");
-    if(el && el.data) Plotly.Plots.resize(el);
-  });
+  // Se você adicionar um botão com id="btnAll", ele funciona
+  const btnAll = document.getElementById("btnAll");
+  if(btnAll){
+    btnAll.addEventListener("click", showAll);
+  }
+
+  setupPlotResizeObserver();
+
+  // Estado inicial: nada selecionado (mais correto)
+  el("stationTitle").textContent = "Selecione uma estação";
+  el("stationMeta").textContent = "—";
+  el("cards").innerHTML = "";
+  el("chart").innerHTML = `<div style="padding:14px;color:#475569">
+    Selecione uma estação na lista ou no mapa para ver o climograma.
+  </div>`;
+
+  // Ano no seletor antes de selecionar estação:
+  // deixa o select com 2024 visível já.
+  const yearSel = el("year");
+  yearSel.innerHTML = `<option value="${DEFAULT_YEAR}">${DEFAULT_YEAR}</option>`;
+  yearSel.value = String(DEFAULT_YEAR);
+  yearSel.disabled = false;
 }
 
 bootstrap();
