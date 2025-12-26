@@ -57,19 +57,12 @@ function renderList(){
 
 function applyFilter(){
   const q = document.getElementById("q").value.trim().toLowerCase();
-  if(!q){
-    filtered = STATIONS.slice();
-  } else {
-    filtered = STATIONS.filter(st => {
-      const s = `${st.id} ${st.name} ${st.uf}`.toLowerCase();
-      return s.includes(q);
-    });
-  }
+if(q.length < 2){
+  filtered = [];
   renderList();
   renderMapMarkers();
-  document.getElementById("countNote").textContent = "Digite para buscar estações";
+  return;
 }
-
 function initMap(){
   map = L.map("map", { zoomControl:true }).setView([-14.2, -55.9], 4);
 
@@ -297,5 +290,6 @@ window.addEventListener("resize", () => {
   const el = document.getElementById("chart");
   if(el && el.data) Plotly.Plots.resize(el);
 });
+
 
 
