@@ -230,7 +230,7 @@ function renderCards(d){
     ["Chuva mín (mês)", `${fmt(a.p_month_min,1)} mm`],
     ["Chuva méd (mês)", `${fmt(a.p_month_mean,1)} mm`],
     ["Chuva máx (mês)", `${fmt(a.p_month_max,1)} mm`],
-    ["Completude", `${fmt((a.coverage||0)*100,0)} %`],
+    
   ];
 
   c.innerHTML = cards.map(([k,v]) => `
@@ -457,4 +457,5 @@ async function bootstrap(){
 
 
 bootstrap();
+
 
